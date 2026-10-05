@@ -1,0 +1,3 @@
+android-app/
+*.apk
+.DS_Store
