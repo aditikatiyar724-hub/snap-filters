@@ -145,6 +145,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   background: rgba(255, 255, 255, 0.48);
   transform: scale(calc(55 / 77));
 }
+.filter-thumb img:not([src]) { visibility: hidden; }
 .filter-thumb img {
   width: 100%;
   height: 100%;
@@ -412,3 +413,18 @@ video.viewer-img { background: #000; }
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 .intensity input:focus-visible { outline: 2px solid var(--white); outline-offset: 4px; border-radius: 2px; }
+
+.filter-name {
+  position: absolute;
+  left: 50%;
+  bottom: calc(22px + var(--ring) + 14px + 36px + 10px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 2;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.recording .filter-name { opacity: 0; }
