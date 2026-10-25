@@ -30,6 +30,7 @@
     deleteSnap: $('deleteSnap'),
     intensityRange: $('intensityRange'),
     intensityValue: $('intensityValue'),
+    filterName: $('filterName'),
   };
 
   const PREVIEW_PIXELS = 2.2e6; // pixel budget for the live preview (screen resolution up to this)
@@ -64,6 +65,8 @@
     snaps: [],
     urls: [],
     current: null,
+    thumbQueue: [],        // filters whose thumbnail still needs rendering from PREVIEW_IMAGE
+    thumbSrc: null,        // { img, stats } once PREVIEW_IMAGE is decoded
   };
 
   const video = document.createElement('video');
@@ -73,6 +76,10 @@
 
   let renderer;
   let captureRenderer = null;
+  let thumbRenderer = null;
+  const THUMB_PX = 154;        // 77px active thumbnail at 2x
+  const PREVIEW_IMAGE = 'assets/filters/nineties.jpg';  // every carousel thumbnail is this scene through its filter
+  const THUMBS_PER_FRAME = 3;  // spread shader compiles so the preview doesn't stall
 
   // Active recording: a 2D canvas holding the on-screen crop of the preview, fed to MediaRecorder
   const rec = { recorder: null, chunks: [], canvas: null, ctx: null, crop: null, started: 0, timer: 0, filter: null, poster: null };
@@ -89,19 +96,29 @@
       return;
     }
     buildCarousel();
-    loadReferenceStats();
+    loadReferenceStats().then(loadPreviewImage);
     startCamera();
     requestAnimationFrame(loop);
   }
 
   function loadReferenceStats() {
-    FILTERS.forEach((f, i) => {
+    return Promise.all(FILTERS.map((f, i) => {
+      if (!f.image) return null;   // pure grades: no reference image
       const img = new Image();
       img.src = f.image;
-      img.decode()
+      return img.decode()
         .then(() => { state.refStats[i] = ColorStats.measure(img, img.naturalWidth, img.naturalHeight); })
         .catch((e) => console.warn('Reference failed to load', f.image, e));
-    });
+    }));
+  }
+
+  function loadPreviewImage() {
+    const img = new Image();
+    img.src = PREVIEW_IMAGE;
+    img.decode().then(() => {
+      state.thumbSrc = { img, stats: ColorStats.measure(img, img.naturalWidth, img.naturalHeight) };
+      state.thumbQueue = FILTERS.map((f, i) => i);
+    }).catch((e) => console.warn('Preview image failed to load', PREVIEW_IMAGE, e));
   }
 
   /* ---------------- Camera ---------------- */
@@ -196,6 +213,7 @@
 
   function loop(now) {
     requestAnimationFrame(loop);
+    if (state.thumbQueue.length) renderThumbs();
     const src = state.source;
     if (!src) return;
     const { w, h } = sourceSize(src);
@@ -225,6 +243,27 @@
       const elapsed = now - rec.started;
       els.recProgress.style.strokeDashoffset = String(100 - Math.min(100, (elapsed / MAX_RECORD_MS) * 100));
       els.recTime.textContent = formatDuration(elapsed);
+    }
+  }
+
+  /* Carousel thumbnails: PREVIEW_IMAGE (centre square) through each filter. */
+  function renderThumbs() {
+    const { img, stats } = state.thumbSrc;
+    const w = img.naturalWidth, h = img.naturalHeight;
+    try {
+      if (!thumbRenderer) {
+        thumbRenderer = new Renderer(document.createElement('canvas'), { preserve: true });
+        thumbRenderer.setSize(THUMB_PX, THUMB_PX);
+      }
+      const s = Math.min(w, h);
+      const crop = [(w - s) / 2 / w, (h - s) / 2 / h, s / w, s / h];
+      state.thumbQueue.splice(0, THUMBS_PER_FRAME).forEach((i) => {
+        thumbRenderer.render(img, FILTERS[i], { src: stats, ref: state.refStats[i] || stats, crop });
+        items()[i].querySelector('img').src = thumbRenderer.canvas.toDataURL('image/jpeg', 0.85);
+      });
+    } catch (err) {
+      console.warn('Thumbnail rendering failed', err);
+      state.thumbQueue = [];
     }
   }
 
@@ -407,7 +446,7 @@
       btn.className = 'filter-item';
       btn.setAttribute('role', 'option');
       btn.setAttribute('aria-label', f.name);
-      btn.innerHTML = `<span class="filter-thumb"><img src="${f.image}" alt="" draggable="false" /></span>`;
+      btn.innerHTML = `<span class="filter-thumb"><img alt="" draggable="false" /></span>`;
       btn.addEventListener('pointerdown', (e) => onItemDown(e, i));
       btn.addEventListener('contextmenu', (e) => e.preventDefault());
       btn.addEventListener('click', () => {
@@ -465,6 +504,7 @@
       state.filterIndex = best;
       syncIntensity();
     }
+    els.filterName.textContent = FILTERS[best].name;
   }
 
   /* ---------------- Intensity ---------------- */
